@@ -23,7 +23,7 @@ impl Default for Info {
 
 fn main() {
     // Store the key as a Vec<u8> instead for speed.
-    let mut map: HashMap<Vec<u8>, Info> = HashMap::with_capacity(10_000);
+    let mut map: HashMap<&[u8], Info> = HashMap::with_capacity(10_000);
 
     // read the data in the file line by line
     let file = File::open("../data/measurements.txt").unwrap();
@@ -36,22 +36,30 @@ fn main() {
             break;
         }
 
-        let (station, temp) = split_lines(&line);
+        let (station, temp) = split_lines(line);
 
-        // only allcate on new entries
+        match map.entry(station) {
+            std::collections::hash_map::Entry::Occupied(mut e) => {
+                let s = e.get_mut();
+                s.min = s.min.min(temp);
+                s.max = s.max.max(temp);
+                s.count += 1;
+                s.total += temp;
+            }
 
-        let stats = match map.get_mut(&station) {
-            Some(stats) => stats,
-            None => map.entry(station.to_vec()).or_default(),
-        };
-
-        stats.min = stats.min.min(temp);
-        stats.max = stats.max.max(temp);
-        stats.count += 1;
-        stats.total += temp;
+            std::collections::hash_map::Entry::Vacant(e) => {
+                e.insert(Info {
+                    min: temp,
+                    max: temp,
+                    count: 1,
+                    total: temp,
+                });
+            }
+        }
     }
-    let mut sorted: Vec<(Vec<u8>, Info)> = map.into_iter().collect();
-    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+
+    let mut sorted: Vec<(&&[u8], &Info)> = map.iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(b.0));
 
     print!("{{");
     for (station, info) in sorted {
@@ -66,14 +74,26 @@ fn main() {
     print!("}}");
 }
 
-fn split_lines(line: &[u8]) -> (Vec<u8>, f64) {
-    // splitn(2) on ';' gives [station, temp] in forward order
-    let mut fields = line.splitn(2, |c| *c == b';');
-    let station = fields.next().unwrap();
-    let temp = fields.next().unwrap();
-    let temp: f64 = unsafe { std::str::from_utf8_unchecked(temp) }
-        .parse()
-        .unwrap();
+// zero copy &[u8] slice better than Vec
+fn split_lines(line: &[u8]) -> (&[u8], f64) {
+    let sep = line.iter().position(|&c| c == b';').unwrap();
+    let station = &line[..sep];
+    let temp = parse_temp(&line[sep + 1..]);
+    (station, temp)
+}
 
-    (station.to_vec(), temp)
+// parse out the temp from slice of bytes.. this is some bullshit
+fn parse_temp(bytes: &[u8]) -> f64 {
+    let (neg, bytes) = if bytes[0] == b'-' {
+        (true, &bytes[1..])
+    } else {
+        (false, bytes)
+    };
+    let val: i32 = match bytes {
+        [a, b'.', c] => (*a - b'0') as i32 * 10 + (*c - b'0') as i32,
+        [a, b, b'.', c] => (*a - b'0') as i32 * 100 + (*b - b'0') as i32 * 10 + (*c - b'0') as i32,
+        _ => panic!("unexpected temp format: {:?}", std::str::from_utf8(bytes)),
+    };
+    let val = if neg { -val } else { val };
+    val as f64 / 10.0
 }
