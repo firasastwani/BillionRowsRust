@@ -1,6 +1,7 @@
 use core::f64;
+use hashbrown::hash_map::Entry;
+use hashbrown::HashMap;
 use memmap2::Mmap;
-use std::collections::HashMap;
 use std::fs::File;
 
 struct Info {
@@ -10,26 +11,11 @@ struct Info {
     max: f64,
 }
 
-impl Default for Info {
-    fn default() -> Self {
-        Info {
-            min: f64::INFINITY,
-            max: f64::NEG_INFINITY,
-            count: 0,
-            total: 0.0,
-        }
-    }
-}
-
 fn main() {
-    // Store the key as a Vec<u8> instead for speed.
-    let mut map: HashMap<&[u8], Info> = HashMap::with_capacity(10_000);
-
-    // read the data in the file line by line
     let file = File::open("../data/measurements.txt").unwrap();
-    // in the future, allocate a buffer with_capacity = to the bytes in the file
-
     let mmap = unsafe { Mmap::map(&file) }.unwrap();
+
+    let mut map: HashMap<&[u8], Info> = HashMap::with_capacity(10_000);
 
     for line in mmap.split(|c| *c == b'\n') {
         if line.is_empty() {
@@ -39,7 +25,7 @@ fn main() {
         let (station, temp) = split_lines(line);
 
         match map.entry(station) {
-            std::collections::hash_map::Entry::Occupied(mut e) => {
+            Entry::Occupied(mut e) => {
                 let s = e.get_mut();
                 s.min = s.min.min(temp);
                 s.max = s.max.max(temp);
@@ -47,7 +33,7 @@ fn main() {
                 s.total += temp;
             }
 
-            std::collections::hash_map::Entry::Vacant(e) => {
+            Entry::Vacant(e) => {
                 e.insert(Info {
                     min: temp,
                     max: temp,

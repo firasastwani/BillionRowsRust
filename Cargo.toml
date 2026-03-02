@@ -5,4 +5,5 @@ edition = "2024"
 
 
 [dependencies]
+hashbrown = "0.16.1"
 memmap2 = "0.9.10"
