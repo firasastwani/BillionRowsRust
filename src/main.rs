@@ -1,4 +1,5 @@
 use core::f64;
+use memmap2::Mmap;
 use std::collections::HashMap;
 use std::fs::File;
 use std::io::{BufRead, BufReader};
@@ -22,7 +23,7 @@ impl Default for Info {
 }
 
 fn main() {
-    // TODO: Store the key as a Vec<u8> instead for speed.
+    // Store the key as a Vec<u8> instead for speed.
     let mut map: HashMap<Vec<u8>, Info> = HashMap::with_capacity(10_000);
 
     // read the data in the file line by line
@@ -67,7 +68,9 @@ fn split_lines(line: &[u8]) -> (Vec<u8>, f64) {
     let mut fields = line.splitn(2, |c| *c == b';');
     let station = fields.next().unwrap();
     let temp = fields.next().unwrap();
-    let temp: f64 = std::str::from_utf8(temp).unwrap().parse().unwrap();
+    let temp: f64 = unsafe { std::str::from_utf8_unchecked(temp) }
+        .parse()
+        .unwrap();
 
     (station.to_vec(), temp)
 }
