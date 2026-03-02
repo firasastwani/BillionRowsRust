@@ -23,7 +23,7 @@ impl Default for Info {
 }
 
 fn main() {
-    // do we want it to take a str slice? can change later
+    // TODO: Store the key as a Vec<u8> instead for speed.
     let mut map: HashMap<String, Info> = HashMap::with_capacity(10_000);
 
     // read the data in the file line by line
@@ -36,21 +36,17 @@ fn main() {
         let (station, temp) = split_lines(&line);
 
         // only allcate on new entries
-        if let Some(stats) = map.get_mut(station) {
-            stats.min = stats.min.min(temp);
-            stats.count += 1;
-            stats.total += temp;
-            stats.max = stats.max.max(temp);
-        } else {
-            let mut stats = Info::default();
-            stats.min = temp;
-            stats.max = temp;
-            stats.count = 1;
-            stats.total = temp;
-            map.insert(station.to_owned(), stats);
-        }
-    }
 
+        let stats = match map.get_mut(station) {
+            Some(stats) => stats,
+            None => map.entry(station.to_string()).or_default(),
+        };
+
+        stats.min = stats.min.min(temp);
+        stats.max = stats.max.max(temp);
+        stats.count += 1;
+        stats.total += temp;
+    }
     let mut sorted: Vec<(String, Info)> = map.into_iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(&b.0));
 
