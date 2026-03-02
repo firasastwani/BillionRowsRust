@@ -1,5 +1,5 @@
 use core::f64;
-use std::collections::{BTreeMap, HashMap};
+use std::collections::HashMap;
 use std::error::Error;
 use std::fs::File;
 use std::io::{self, BufRead, BufReader, Result};
@@ -25,7 +25,7 @@ impl Default for Info {
 
 fn main() {
     // do we want it to take a str slice? can change later
-    let mut map = BTreeMap::<String, Info>::new();
+    let mut map: HashMap<String, Info> = HashMap::with_capacity(10_000);
 
     // read the data in the file line by line
     let file = File::open("../data/measurements.txt").unwrap();
@@ -42,16 +42,16 @@ fn main() {
         stats.max = stats.max.max(temperature);
     }
 
+    let mut sorted: Vec<(String, Info)> = map.into_iter().collect();
+    sorted.sort_by(|a, b| a.0.cmp(&b.0));
+
     print!("{{");
-    let mut stats = map.into_iter().peekable();
-    while let Some((station, info)) = stats.next() {
+    for (station, info) in sorted {
         let mean = info.total / info.count as f64;
 
         print!("{station} = {}/{}/{}", info.min, mean, info.max);
 
-        if stats.peek().is_some() {
-            print!(", ")
-        }
+        print!(", ")
     }
 
     print!("}}");
