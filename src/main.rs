@@ -1,9 +1,8 @@
 use core::f64;
+use memmap2::Mmap;
 use std::collections::HashMap;
-use std::error::Error;
 use std::fs::File;
-use std::io::{self, BufRead, BufReader, Result};
-use std::path::Path;
+use std::io::{BufRead, BufReader};
 
 struct Info {
     min: f64,
@@ -33,13 +32,23 @@ fn main() {
     let reader = BufReader::new(file);
 
     for line in reader.lines() {
-        let (station, temperature) = split_lines(&line.unwrap());
+        let line = line.unwrap();
+        let (station, temp) = split_lines(&line);
 
-        let stats = map.entry(station).or_default();
-        stats.min = stats.min.min(temperature);
-        stats.count += 1;
-        stats.total += temperature;
-        stats.max = stats.max.max(temperature);
+        // only allcate on new entries
+        if let Some(stats) = map.get_mut(station) {
+            stats.min = stats.min.min(temp);
+            stats.count += 1;
+            stats.total += temp;
+            stats.max = stats.max.max(temp);
+        } else {
+            let mut stats = Info::default();
+            stats.min = temp;
+            stats.max = temp;
+            stats.count = 1;
+            stats.total = temp;
+            map.insert(station.to_owned(), stats);
+        }
     }
 
     let mut sorted: Vec<(String, Info)> = map.into_iter().collect();
@@ -49,7 +58,7 @@ fn main() {
     for (station, info) in sorted {
         let mean = info.total / info.count as f64;
 
-        print!("{station} = {}/{}/{}", info.min, mean, info.max);
+        print!("{station} = {}/{:.1}/{}", info.min, mean, info.max);
 
         print!(", ")
     }
@@ -58,12 +67,10 @@ fn main() {
 }
 
 // takes a line from the file and returns a tuple of String, Temperature
-fn split_lines(line: &str) -> (String, f64) {
-    let mut parts = line.split(';');
+fn split_lines(line: &str) -> (&str, f64) {
+    let (station, temp) = line.split_once(';').unwrap();
 
-    let station = parts.next().unwrap().to_string();
-    let temp_str = parts.next().unwrap();
-    let temp: f64 = temp_str.trim().parse::<f64>().unwrap();
+    let temp: f64 = temp.parse().unwrap();
 
     return (station, temp);
 }
