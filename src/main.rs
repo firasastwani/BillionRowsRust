@@ -1,6 +1,7 @@
 use core::f64;
 use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
+use memchr::memchr;
 use memmap2::Mmap;
 use rayon::prelude::*;
 use std::fs::File;
@@ -47,8 +48,9 @@ fn main() {
 }
 
 // zero copy &[u8] slice better than Vec
+// TODO: Optimize using memchr instead of iterating the line
 fn split_lines(line: &[u8]) -> (&[u8], f64) {
-    let sep = line.iter().position(|&c| c == b';').unwrap();
+    let sep = memchr(b';', line).unwrap();
     let station = &line[..sep];
     let temp = parse_temp(&line[sep + 1..]);
     (station, temp)
