@@ -2,6 +2,7 @@ use core::f64;
 use hashbrown::hash_map::Entry;
 use hashbrown::HashMap;
 use memmap2::Mmap;
+use rayon::prelude::*;
 use std::fs::File;
 
 struct Info {
@@ -14,43 +15,28 @@ struct Info {
 fn main() {
     let file = File::open("../data/measurements.txt").unwrap();
     let mmap = unsafe { Mmap::map(&file) }.unwrap();
+    mmap.advise(memmap2::Advice::Sequential).unwrap();
 
-    let mut map: HashMap<&[u8], Info> = HashMap::with_capacity(10_000);
+    let num_threads = std::thread::available_parallelism()
+        .map(|n| n.get())
+        .unwrap_or(4);
 
-    for line in mmap.split(|c| *c == b'\n') {
-        if line.is_empty() {
-            break;
-        }
+    let chunks = split_at_newlines(&mmap, num_threads);
 
-        let (station, temp) = split_lines(line);
+    let maps: Vec<HashMap<&[u8], Info>> = chunks
+        .par_iter()
+        .map(|chunk| process_chunk(chunk))
+        .collect();
 
-        match map.entry(station) {
-            Entry::Occupied(mut e) => {
-                let s = e.get_mut();
-                s.min = s.min.min(temp);
-                s.max = s.max.max(temp);
-                s.count += 1;
-                s.total += temp;
-            }
+    let merged = merge(maps);
 
-            Entry::Vacant(e) => {
-                e.insert(Info {
-                    min: temp,
-                    max: temp,
-                    count: 1,
-                    total: temp,
-                });
-            }
-        }
-    }
-
-    let mut sorted: Vec<(&&[u8], &Info)> = map.iter().collect();
+    let mut sorted: Vec<(&&[u8], &Info)> = merged.iter().collect();
     sorted.sort_by(|a, b| a.0.cmp(b.0));
 
     print!("{{");
     for (station, info) in sorted {
         let mean = info.total / info.count as f64;
-        let station = std::str::from_utf8(&station).unwrap();
+        let station = std::str::from_utf8(station).unwrap();
 
         print!("{station} = {}/{:.1}/{}", info.min, mean, info.max);
 
@@ -82,4 +68,83 @@ fn parse_temp(bytes: &[u8]) -> f64 {
     };
     let val = if neg { -val } else { val };
     val as f64 / 10.0
+}
+
+fn split_at_newlines<'a>(data: &'a [u8], num_chunks: usize) -> Vec<&'a [u8]> {
+    let chunk_size = data.len() / num_chunks;
+    let mut chunks = Vec::with_capacity(num_chunks);
+    let mut start = 0;
+
+    for i in 1..num_chunks {
+        let mut end = i * chunk_size;
+
+        while end < data.len() && data[end] != b'\n' {
+            end += 1;
+        }
+
+        end += 1;
+        chunks.push(&data[start..end]);
+        start = end;
+    }
+
+    chunks.push(&data[start..]);
+    chunks
+}
+
+fn process_chunk(chunk: &[u8]) -> HashMap<&[u8], Info> {
+    let mut map: HashMap<&[u8], Info> = HashMap::with_capacity(5_000);
+
+    for line in chunk.split(|c| *c == b'\n') {
+        if line.is_empty() {
+            break;
+        }
+
+        let (station, temp) = split_lines(line);
+
+        // if the entry exists, put new info
+        match map.entry(station) {
+            Entry::Occupied(mut e) => {
+                let s = e.get_mut();
+                s.min = s.min.min(temp);
+                s.max = s.max.max(temp);
+                s.count += 1;
+                s.total += temp;
+            }
+
+            // if entry doesnt exist, put default
+            Entry::Vacant(e) => {
+                e.insert(Info {
+                    min: temp,
+                    max: temp,
+                    count: 1,
+                    total: temp,
+                });
+            }
+        }
+    }
+
+    map
+}
+
+fn merge<'a>(maps: Vec<HashMap<&'a [u8], Info>>) -> HashMap<&'a [u8], Info> {
+    let mut final_map: HashMap<&[u8], Info> = HashMap::with_capacity(10_000);
+
+    for map in maps {
+        for (station, info) in map {
+            match final_map.entry(station) {
+                Entry::Occupied(mut e) => {
+                    let s = e.get_mut();
+                    s.min = s.min.min(info.min);
+                    s.max = s.max.max(info.max);
+                    s.count += info.count;
+                    s.total += info.total;
+                }
+                Entry::Vacant(e) => {
+                    e.insert(info);
+                }
+            }
+        }
+    }
+
+    final_map
 }
